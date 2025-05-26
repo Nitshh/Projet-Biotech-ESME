@@ -1,0 +1,7 @@
+flask
+nibabel
+numpy
+scikit-image
+open3D
+numpy-stl
+setuptools

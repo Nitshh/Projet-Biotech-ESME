@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Reconstruction 3D – Aorte</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="header-title">
+    <div class="header-content">
+      <img src="/static/logo_esme.png" alt="Logo ESME" class="header-logo" />
+      <div class="title-text">
+        <h1>Reconstruction 3D de l’arc aortique</h1>
+        <h2>Par Alexandre LANDREIN & Wandrille BUREAU - Encadré par Mounir LAHLOUH</h2>
+      </div>
+    </div>
+  </header>
+
+  <div id="info-panel">
+    <h3>Données Reconstruites</h3>
+    <ul id="infos-list">
+      <li>En attente de reconstruction...</li>
+    </ul>
+  </div>
+
+  <main class="main-container">
+    <aside id="sidebar">
+      <form action="/" method="post" enctype="multipart/form-data" onsubmit="showLoader()">
+        <label for="file">Fichier NIfTI (.nii ou .nii.gz)</label>
+        <input type="file" name="file" id="file" accept=".nii,.nii.gz" required>
+
+        <label>Mode de reconstruction</label>
+        <div class="radio-group">
+          <label><input type="radio" name="mode" value="sans" checked> Sans coupe</label>
+          <label><input type="radio" name="mode" value="avec"> Avec coupe</label>
+        </div>
+
+        <button type="submit">Lancer la reconstruction</button>
+      </form>
+
+      <button onclick="window.location.href='/telecharger-stl'">📦 Télécharger STL</button>
+      <hr>
+      <label for="zoom-slider">Zoom</label>
+      <input id="zoom-slider" type="range" min="5" max="50" value="10">
+      <button id="reset-button">🔄 Recentrer</button>
+      <label><input type="checkbox" id="toggle-axes" checked> Afficher les axes</label>
+      <label><input type="checkbox" id="toggle-light" checked> Lumière principale</label>
+    </aside>
+
+    <section id="webgl-output"></section>
+  </main>
+
+  <div id="loader">Chargement...</div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="alert {{ 'success' if category == 'success' else '' }}">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script>
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xf5f5f5);
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 0, 10);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth - 250, window.innerHeight - document.querySelector('header').offsetHeight);
+    document.getElementById('webgl-output').appendChild(renderer.domElement);
+
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(1, 1, 1);
+    scene.add(ambientLight);
+    scene.add(directionalLight);
+
+    const axesHelper = new THREE.AxesHelper(5);
+    scene.add(axesHelper);
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+    function showLoader() {
+      document.getElementById('loader').style.display = 'block';
+    }
+
+    function loadModel() {
+      const loader = new THREE.STLLoader();
+      loader.load("/static/aorte_poisson_lisse.stl", function (geometry) {
+        const material = new THREE.MeshLambertMaterial({ color: 0x0088cc, side: THREE.DoubleSide });
+        const mesh = new THREE.Mesh(geometry, material);
+        const group = new THREE.Group();
+        group.add(mesh);
+        geometry.computeBoundingBox();
+        const center = new THREE.Vector3();
+        geometry.boundingBox.getCenter(center);
+        mesh.position.sub(center);
+        group.scale.setScalar(0.025);
+        scene.add(group);
+        group.rotation.y.x = -Math.PI;
+        document.getElementById('loader').style.display = 'none';
+      });
+    }
+
+    loadModel();
+
+    document.getElementById('zoom-slider').addEventListener('input', function () {
+      camera.position.z = parseFloat(this.value);
+      controls.update();
+    });
+    document.getElementById('reset-button').addEventListener('click', function () {
+      camera.position.set(0, 0, 10);
+      controls.reset();
+    });
+    document.getElementById('toggle-axes').addEventListener('change', function () {
+      axesHelper.visible = this.checked;
+    });
+    document.getElementById('toggle-light').addEventListener('change', function () {
+      directionalLight.visible = this.checked;
+    });
+
+    window.addEventListener('resize', function () {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth - 250, window.innerHeight - document.querySelector('header').offsetHeight);
+    });
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    fetch('/static/aorte_infos.json')
+      .then(response => response.json())
+      .then(data => {
+        const ul = document.getElementById('infos-list');
+        if (data.erreur) {
+          ul.innerHTML = `<li style="color:red;"><strong>Erreur :</strong> ${data.erreur}</li>`;
+        } else {
+          ul.innerHTML = `
+            <li><strong>Fichier :</strong> ${data.fichier}</li>
+            <li><strong>Largeur :</strong> ${data.largeur_mm} mm</li>
+            <li><strong>Hauteur :</strong> ${data.hauteur_mm} mm</li>
+            <li><strong>Profondeur :</strong> ${data.profondeur_mm} mm</li>
+            <li><strong>Volume estimé :</strong> ${data.volume_estime_mm3} mm³</li>
+            <li><strong>Nombre de faces :</strong> ${data.nb_faces}</li>
+            <li><strong>Mode :</strong> ${data.mode}</li>
+          `;
+        }
+      })
+      .catch(err => console.log("Erreur lors du chargement des infos : ", err));
+  </script>
+  <script>
+  // Disparition automatique des alertes flash après 5 secondes
+  setTimeout(() => {
+    const alerts = document.querySelectorAll('.alert');
+    alerts.forEach(alert => {
+      alert.style.transition = "opacity 1s ease-out";
+      alert.style.opacity = 0;
+      setTimeout(() => alert.remove(), 1000);
+    });
+  }, 5000);
+</script>
+</body>
+</html>
